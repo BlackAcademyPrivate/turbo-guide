@@ -1,0 +1,670 @@
+local interfaceName = "NavyLib_Running"
+if getgenv()[interfaceName] then return end
+getgenv()[interfaceName] = true
+
+local safeClone = cloneref or clonereference or function(x) return x end
+
+local TweenService     = safeClone(game:GetService("TweenService"))
+local UserInputService = safeClone(game:GetService("UserInputService"))
+local RunService       = safeClone(game:GetService("RunService"))
+local Players          = safeClone(game:GetService("Players"))
+local CoreGui          = safeClone(game:GetService("CoreGui"))
+
+local LocalPlayer = Players.LocalPlayer
+
+local _connections = {}
+local _tweens = {}
+
+local function trackConn(c)
+    if c then table.insert(_connections, c) end
+    return c
+end
+
+local function tween(inst, info, props)
+    local t = TweenService:Create(inst, info, props)
+    table.insert(_tweens, t)
+    t:Play()
+    return t
+end
+
+local C = {
+    BG = Color3.fromRGB(10, 10, 12),
+    Panel = Color3.fromRGB(16, 16, 20),
+    Element = Color3.fromRGB(22, 22, 28),
+    ElementHov = Color3.fromRGB(28, 28, 36),
+    Accent = Color3.fromRGB(25, 55, 120),
+    AccentLight = Color3.fromRGB(60, 110, 200),
+    TabBar = Color3.fromRGB(13, 13, 17),
+    Text = Color3.fromRGB(210, 210, 220),
+    SubText = Color3.fromRGB(100, 100, 115),
+    Off = Color3.fromRGB(50, 50, 60),
+    White = Color3.fromRGB(255, 255, 255),
+    Divider = Color3.fromRGB(30, 30, 40),
+}
+
+local function New(class, props)
+    local inst = Instance.new(class)
+    for k, v in pairs(props) do
+        if k ~= "Parent" then inst[k] = v end
+    end
+    if props.Parent then inst.Parent = props.Parent end
+    return inst
+end
+
+local function Corner(parent, radius)
+    return New("UICorner", { Parent = parent, CornerRadius = UDim.new(0, radius or 6) })
+end
+
+local function Stroke(parent, color, thickness, transparency)
+    return New("UIStroke", {
+        Parent = parent,
+        Color = color or C.Accent,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0,
+    })
+end
+
+local NavyLib = {}
+
+local FAST = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local MED  = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+function NavyLib.Window(config)
+    config = config or {}
+    local title  = config.Title or "NavyLib"
+    local size   = config.Size or UDim2.new(0, 460, 0, 300)
+    local togKey = config.ToggleKey or Enum.KeyCode.RightAlt
+
+    local parent
+    if RunService:IsStudio() then
+        parent = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer.PlayerGui
+    elseif gethui then
+        parent = gethui()
+    elseif CoreGui then
+        parent = CoreGui
+    else
+        parent = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer.PlayerGui
+    end
+
+    local ProtectGui = protectgui or (syn and syn.protect_gui) or function() end
+
+    local ScreenGui = New("ScreenGui", {
+        Name = "NavyLibUI",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    })
+    pcall(ProtectGui, ScreenGui)
+    ScreenGui.Parent = parent
+
+    local Main = New("Frame", {
+        Parent = ScreenGui,
+        Size = size,
+        Position = UDim2.new(0.5, -size.X.Offset/2, 0.5, -size.Y.Offset/2),
+        BackgroundColor3 = C.BG,
+        BorderSizePixel = 0,
+        ClipsDescendants = false,
+    })
+    Corner(Main, 8)
+
+    local TitleBar = New("Frame", {
+        Parent = Main,
+        Size = UDim2.new(1, 0, 0, 36),
+        BackgroundColor3 = C.Panel,
+        BorderSizePixel = 0,
+    })
+    Corner(TitleBar, 8)
+    New("Frame", {
+        Parent = TitleBar,
+        Size = UDim2.new(1, 0, 0, 8),
+        Position = UDim2.new(0, 0, 1, -8),
+        BackgroundColor3 = C.Panel,
+        BorderSizePixel = 0,
+    })
+
+    local AccentLine = New("Frame", {
+        Parent = TitleBar,
+        Size = UDim2.new(1, 0, 0, 2),
+        Position = UDim2.new(0, 0, 1, -2),
+        BackgroundColor3 = C.White,
+        BorderSizePixel = 0,
+    })
+    New("UIGradient", {
+        Parent = AccentLine,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 20, 50)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(60, 110, 200)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 20, 50)),
+        }),
+    })
+
+    local TitleDot = New("Frame", {
+        Parent = TitleBar,
+        Size = UDim2.new(0, 4, 0, 16),
+        Position = UDim2.new(0, 10, 0.5, -8),
+        BackgroundColor3 = C.AccentLight,
+        BorderSizePixel = 0,
+    })
+    Corner(TitleDot, 2)
+
+    New("TextLabel", {
+        Parent = TitleBar,
+        Size = UDim2.new(1, -30, 1, 0),
+        Position = UDim2.new(0, 22, 0, 0),
+        BackgroundTransparency = 1,
+        Text = title,
+        TextColor3 = C.Text,
+        TextSize = 14,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left,
+    })
+
+    local dragging, dragStart, startPos
+    trackConn(TitleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = Main.Position
+        end
+    end))
+    trackConn(UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end))
+    trackConn(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end))
+
+    local TAB_W = 110
+
+    local TabBar = New("Frame", {
+        Parent = Main,
+        Size = UDim2.new(0, TAB_W, 1, -36),
+        Position = UDim2.new(0, 0, 0, 36),
+        BackgroundColor3 = C.TabBar,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 2,
+    })
+    New("Frame", { Parent = TabBar, Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, -1, 0, 0), BackgroundColor3 = C.Divider, BorderSizePixel = 0 })
+
+    New("UIListLayout", { Parent = TabBar, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) })
+    New("UIPadding", { Parent = TabBar, PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) })
+
+    local ContentArea = New("Frame", {
+        Parent = Main,
+        Size = UDim2.new(1, -TAB_W, 1, -36),
+        Position = UDim2.new(0, TAB_W, 0, 36),
+        BackgroundColor3 = C.BG,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 1,
+    })
+
+    trackConn(UserInputService.InputBegan:Connect(function(input, gp)
+        if not gp and input.KeyCode == togKey then
+            Main.Visible = not Main.Visible
+        end
+    end))
+
+    local tabs = {}
+    local activeTab = nil
+
+    local function activateTab(idx)
+        if activeTab == idx then return end
+
+        if activeTab and tabs[activeTab] then
+            tabs[activeTab].Page.Visible = false
+            tween(tabs[activeTab].Btn, FAST, { BackgroundTransparency = 1 })
+            tween(tabs[activeTab].Lbl, FAST, { TextColor3 = C.SubText })
+            tween(tabs[activeTab].Bar, FAST, { Size = UDim2.new(0, 0, 0, 14) })
+        end
+
+        activeTab = idx
+        local tab = tabs[idx]
+        tab.Page.Visible = true
+        tween(tab.Btn, FAST, { BackgroundTransparency = 0 })
+        tween(tab.Lbl, FAST, { TextColor3 = C.Text })
+        tween(tab.Bar, MED, { Size = UDim2.new(0, 3, 0, 14) })
+    end
+
+    local Win = {}
+
+    function Win.Tab(cfg)
+        local name = cfg.Name or "Tab"
+        local idx = #tabs + 1
+
+        local Btn = New("TextButton", {
+            Parent = TabBar,
+            Size = UDim2.new(1, 0, 0, 28),
+            BackgroundColor3 = C.Element,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Text = "",
+            AutoButtonColor = false,
+            LayoutOrder = idx,
+            ZIndex = 2,
+        })
+        Corner(Btn, 5)
+
+        local AccBar = New("Frame", {
+            Parent = Btn,
+            Size = UDim2.new(0, 0, 0, 14),
+            Position = UDim2.new(0, 0, 0.5, -7),
+            BackgroundColor3 = C.AccentLight,
+            BorderSizePixel = 0,
+            ZIndex = 2,
+        })
+        Corner(AccBar, 2)
+
+        local TabLbl = New("TextLabel", {
+            Parent = Btn,
+            Size = UDim2.new(1, -10, 1, 0),
+            Position = UDim2.new(0, 10, 0, 0),
+            BackgroundTransparency = 1,
+            Text = name,
+            TextColor3 = C.SubText,
+            TextSize = 13,
+            Font = Enum.Font.Gotham,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 2,
+        })
+
+        local Page = New("ScrollingFrame", {
+            Parent = ContentArea,
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ScrollBarThickness = 3,
+            ScrollBarImageColor3 = C.Accent,
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            Visible = false,
+            ZIndex = 1,
+        })
+        New("UIListLayout", { Parent = Page, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4) })
+        New("UIPadding", { Parent = Page, PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8) })
+
+        tabs[idx] = { Btn = Btn, Lbl = TabLbl, Bar = AccBar, Page = Page }
+
+        trackConn(Btn.MouseButton1Click:Connect(function()
+            activateTab(idx)
+        end))
+
+        if idx == 1 then
+            task.defer(function()
+                activateTab(1)
+            end)
+        end
+
+        local Tab = {}
+        local elOrder = 0
+
+        local function nextOrder()
+            elOrder = elOrder + 1
+            return elOrder
+        end
+
+        function Tab.Section(c)
+            c = c or {}
+            local f = New("Frame", {
+                Parent = Page,
+                Size = UDim2.new(1, 0, 0, 22),
+                BackgroundTransparency = 1,
+                LayoutOrder = nextOrder(),
+            })
+            New("TextLabel", {
+                Parent = f,
+                Size = UDim2.new(1, -8, 1, 0),
+                Position = UDim2.new(0, 4, 0, 0),
+                BackgroundTransparency = 1,
+                Text = c.Name or "Section",
+                TextColor3 = C.AccentLight,
+                TextSize = 11,
+                Font = Enum.Font.GothamBold,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+            return f
+        end
+
+        function Tab.Label(c)
+            c = c or {}
+            local f = New("Frame", {
+                Parent = Page,
+                Size = UDim2.new(1, 0, 0, 32),
+                BackgroundColor3 = C.Element,
+                LayoutOrder = nextOrder(),
+            })
+            Corner(f, 6)
+            local lbl = New("TextLabel", {
+                Parent = f,
+                Size = UDim2.new(1, -16, 1, 0),
+                Position = UDim2.new(0, 10, 0, 0),
+                BackgroundTransparency = 1,
+                Text = c.Text or "",
+                TextColor3 = C.SubText,
+                TextSize = 13,
+                Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+            local el = {}
+            function el.Set(text) lbl.Text = tostring(text) end
+            return el
+        end
+
+        function Tab.Button(c)
+            c = c or {}
+            local f = New("Frame", {
+                Parent = Page,
+                Size = UDim2.new(1, 0, 0, 36),
+                BackgroundColor3 = C.Element,
+                LayoutOrder = nextOrder(),
+            })
+            Corner(f, 6)
+
+            New("TextLabel", {
+                Parent = f,
+                Size = UDim2.new(1, -80, 1, 0),
+                Position = UDim2.new(0, 10, 0, 0),
+                BackgroundTransparency = 1,
+                Text = c.Name or "Button",
+                TextColor3 = C.Text,
+                TextSize = 13,
+                Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+
+            local Pip = New("Frame", {
+                Parent = f,
+                Size = UDim2.new(0, 60, 0, 20),
+                Position = UDim2.new(1, -68, 0.5, -10),
+                BackgroundColor3 = C.Accent,
+            })
+            Corner(Pip, 4)
+            New("TextLabel", {
+                Parent = Pip,
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Text = "Run",
+                TextColor3 = C.White,
+                TextSize = 12,
+                Font = Enum.Font.GothamBold,
+            })
+
+            local btn = New("TextButton", {
+                Parent = f,
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Text = "",
+                AutoButtonColor = false,
+            })
+
+            trackConn(btn.MouseButton1Click:Connect(function()
+                tween(Pip, FAST, { BackgroundColor3 = C.AccentLight })
+                task.delay(0.15, function() tween(Pip, FAST, { BackgroundColor3 = C.Accent }) end)
+                if c.Callback then pcall(c.Callback) end
+            end))
+
+            return {}
+        end
+
+        function Tab.Toggle(c)
+            c = c or {}
+            local state = c.Default or false
+
+            local f = New("Frame", {
+                Parent = Page,
+                Size = UDim2.new(1, 0, 0, 36),
+                BackgroundColor3 = C.Element,
+                LayoutOrder = nextOrder(),
+            })
+            Corner(f, 6)
+
+            New("TextLabel", {
+                Parent = f,
+                Size = UDim2.new(1, -60, 1, 0),
+                Position = UDim2.new(0, 10, 0, 0),
+                BackgroundTransparency = 1,
+                Text = c.Name or "Toggle",
+                TextColor3 = C.Text,
+                TextSize = 13,
+                Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+
+            local Track = New("Frame", {
+                Parent = f,
+                Size = UDim2.new(0, 34, 0, 16),
+                Position = UDim2.new(1, -44, 0.5, -8),
+                BackgroundColor3 = state and C.Accent or C.Off,
+            })
+            Corner(Track, 8)
+
+            local Knob = New("Frame", {
+                Parent = Track,
+                Size = UDim2.new(0, 12, 0, 12),
+                Position = state and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6),
+                BackgroundColor3 = C.White,
+            })
+            Corner(Knob, 6)
+
+            local HitBox = New("TextButton", {
+                Parent = f,
+                Size = UDim2.new(1, 0, 1, 0),
+                BackgroundTransparency = 1,
+                Text = "",
+                AutoButtonColor = false,
+            })
+
+            local function setToggle(v, fire)
+                state = v
+                tween(Track, FAST, { BackgroundColor3 = v and C.Accent or C.Off })
+                tween(Knob, FAST, { Position = v and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6) })
+                if fire and c.Callback then pcall(c.Callback, v) end
+            end
+
+            trackConn(HitBox.MouseButton1Click:Connect(function()
+                setToggle(not state, true)
+            end))
+
+            local el = {}
+            function el.Set(v) setToggle(v, false) end
+            function el.Get() return state end
+            return el
+        end
+
+        function Tab.Slider(c)
+            c = c or {}
+            local min = c.Min or 0
+            local max = c.Max or 100
+            local step = c.Step or 1
+            local value = math.clamp(c.Default or min, min, max)
+
+            local f = New("Frame", {
+                Parent = Page,
+                Size = UDim2.new(1, 0, 0, 42),
+                BackgroundColor3 = C.Element,
+                LayoutOrder = nextOrder(),
+            })
+            Corner(f, 6)
+
+            New("TextLabel", {
+                Parent = f,
+                Size = UDim2.new(0.55, -10, 0, 16),
+                Position = UDim2.new(0, 10, 0, 6),
+                BackgroundTransparency = 1,
+                Text = c.Name or "Slider",
+                TextColor3 = C.Text,
+                TextSize = 13,
+                Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+
+            local ValLabel = New("TextLabel", {
+                Parent = f,
+                Size = UDim2.new(0, 45, 0, 16),
+                Position = UDim2.new(1, -52, 0, 6),
+                BackgroundTransparency = 1,
+                Text = tostring(value),
+                TextColor3 = C.AccentLight,
+                TextSize = 12,
+                Font = Enum.Font.GothamBold,
+                TextXAlignment = Enum.TextXAlignment.Right,
+            })
+
+            local BarBG = New("Frame", {
+                Parent = f,
+                Size = UDim2.new(1, -20, 0, 4),
+                Position = UDim2.new(0, 10, 0, 30),
+                BackgroundColor3 = C.Off,
+            })
+            Corner(BarBG, 2)
+
+            local BarFill = New("Frame", {
+                Parent = BarBG,
+                Size = UDim2.new((value - min) / (max - min), 0, 1, 0),
+                BackgroundColor3 = C.Accent,
+            })
+            Corner(BarFill, 2)
+
+            local Thumb = New("Frame", {
+                Parent = BarBG,
+                Size = UDim2.new(0, 10, 0, 10),
+                Position = UDim2.new((value - min) / (max - min), -5, 0.5, -5),
+                BackgroundColor3 = C.AccentLight,
+            })
+            Corner(Thumb, 5)
+
+            local draggingSlider = false
+
+            local function setSlider(absX)
+                local barPos = BarBG.AbsolutePosition.X
+                local barW = BarBG.AbsoluteSize.X
+                local pct = math.clamp((absX - barPos) / barW, 0, 1)
+                local raw = min + pct * (max - min)
+                local stepped = math.round(raw / step) * step
+                value = math.clamp(stepped, min, max)
+                local fpct = (value - min) / (max - min)
+                BarFill.Size = UDim2.new(fpct, 0, 1, 0)
+                Thumb.Position = UDim2.new(fpct, -5, 0.5, -5)
+                ValLabel.Text = tostring(value)
+                if c.Callback then pcall(c.Callback, value) end
+            end
+
+            trackConn(BarBG.InputBegan:Connect(function(inp)
+                if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+                    draggingSlider = true
+                    setSlider(inp.Position.X)
+                end
+            end))
+            trackConn(UserInputService.InputChanged:Connect(function(inp)
+                if draggingSlider and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
+                    setSlider(inp.Position.X)
+                end
+            end))
+            trackConn(UserInputService.InputEnded:Connect(function(inp)
+                if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+                    draggingSlider = false
+                end
+            end))
+
+            local el = {}
+            function el.Set(v)
+                value = math.clamp(v, min, max)
+                local fpct = (value - min) / (max - min)
+                BarFill.Size = UDim2.new(fpct, 0, 1, 0)
+                Thumb.Position = UDim2.new(fpct, -5, 0.5, -5)
+                ValLabel.Text = tostring(value)
+            end
+            function el.Get() return value end
+            return el
+        end
+
+        function Tab.Dropdown(c)
+            c = c or {}
+            local options = c.Options or {}
+            local selected = c.Default or (options[1] or "")
+            local isOpen = false
+
+            local Wrapper = New("Frame", {
+                Parent = Page,
+                Size = UDim2.new(1, 0, 0, 34),
+                BackgroundColor3 = C.Element,
+                LayoutOrder = nextOrder(),
+                ClipsDescendants = false,
+                ZIndex = 10,
+            })
+            Corner(Wrapper, 6)
+
+            local el = {}
+            function el.Set(v) selected = v end
+            function el.Get() return selected end
+            return el
+        end
+
+        function Tab.Textbox(c)
+            c = c or {}
+            local f = New("Frame", {
+                Parent = Page,
+                Size = UDim2.new(1, 0, 0, 36),
+                BackgroundColor3 = C.Element,
+                LayoutOrder = nextOrder(),
+            })
+            Corner(f, 6)
+
+            New("TextLabel", {
+                Parent = f,
+                Size = UDim2.new(0.45, -10, 1, 0),
+                Position = UDim2.new(0, 10, 0, 0),
+                BackgroundTransparency = 1,
+                Text = c.Name or "Textbox",
+                TextColor3 = C.Text,
+                TextSize = 13,
+                Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+
+            local Box = New("TextBox", {
+                Parent = f,
+                Size = UDim2.new(0.5, 0, 0, 24),
+                Position = UDim2.new(0.48, 0, 0.5, -12),
+                BackgroundColor3 = C.Panel,
+                Text = c.Default or "",
+                PlaceholderText = c.Placeholder or "...",
+                TextColor3 = C.Text,
+                TextSize = 12,
+                Font = Enum.Font.Gotham,
+                ClearTextOnFocus = false,
+            })
+            Corner(Box, 5)
+
+            if c.Callback then
+                trackConn(Box.FocusLost:Connect(function()
+                    pcall(c.Callback, Box.Text)
+                end))
+            end
+
+            local el = {}
+            function el.Set(v) Box.Text = tostring(v) end
+            function el.Get() return Box.Text end
+            return el
+        end
+
+        return Tab
+    end
+
+    function Win.Destroy()
+        for _, c in ipairs(_connections) do pcall(function() c:Disconnect() end) end
+        for _, t in ipairs(_tweens) do pcall(function() t:Cancel() end) end
+        ScreenGui:Destroy()
+        getgenv()[interfaceName] = false
+    end
+
+    return Win
+end
+
+return NavyLib
